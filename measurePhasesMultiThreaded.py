@@ -277,7 +277,7 @@ def main(exp_no, params: ExpParams, freq_range):
             thetaA_deg = cal_theta(median_voltages_1, params.tag1Name, params.tag2Name, params.tagParams)
             thetaB_deg = cal_theta(median_voltages_2, params.tag2Name, params.tag1Name, params.tagParams)
             print("*"*10)
-            print(thetaA_deg, thetaB_deg, (thetaA_deg+thetaB_deg)/2)
+            print(thetaA_deg, thetaB_deg, ((thetaA_deg+thetaB_deg)/2)%180)
             # saving the entry in phase csv
             entry={
                 "title":"check",
@@ -313,7 +313,7 @@ def main(exp_no, params: ExpParams, freq_range):
         print("Had to stop script prematurely. Had the following exception: ",e)
         premature_stop=1
         premature_stop_error=e
-        raise e
+        # raise e
             
     
     save_path=params.csvSavePath

@@ -2,7 +2,7 @@
 
 ## 1. Microcontroller script
 
-Flash `TagMicrocontrollerCode/usbAPI.ip` on esp32 microcontroller using arduinio IDE.
+Flash `TagMicrocontrollerCode/usbAPI/usbAPI.ipo` on esp32 microcontroller using arduinio IDE.
 
 ## 2. Setting up the Python environment
 
