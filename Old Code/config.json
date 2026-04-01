@@ -1,0 +1,9 @@
+{
+    "title": "check",
+    "cw_power": "13dBm",
+    "freq": 915,
+    "port": ["COM4","COM5"],
+    "baudrate": 256000,
+    "timeout": 0.5,
+    "samples": 5
+}

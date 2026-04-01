@@ -1,6 +1,7 @@
 import serial
 import pandas as pd
-from ribbn_scripts.hardware_api.hardware import Exciter,Tag
+# from ribbn_scripts.hardware_api.hardware import Exciter,Tag
+from ribbn_scripts.hardware_api.hardware import Tag
 import numpy as np
 import time
 import pickle
@@ -10,28 +11,54 @@ import matplotlib.pyplot as plt
 import os
 import multiprocessing
 import datetime
-from gnuradio import gr, blocks
-import osmosdr
+import math
 
 
-excTypes=["RFGen", "BladeRF"]
+excTypes=["RFGen", "BladeRF", None]
 
-class CW_TX(gr.top_block):
+
+class ExpParams:
+    epoch: int
+    freq_range_start: int
+    freq_range_stop: int
+    freq_range_interval: int
+    exc_power: float
+    tag1Name: str
+    tag2Name: str
+    csvSavePath: str
+    excType: int
+    excObj: any
+
+# Initializing dummy class since GNU radio is not installed. 
+# Install the GNU radio and uncommend the real class below
+class CW_TX:
     def __init__(self, f=915, g=10):
-        gr.top_block.__init__(self, "TX1")
-        # src: const DC; snk: bladeRF
-        s = self.sk = osmosdr.sink("bladerf=0,buffers=128,buflen=8192")
-        s.set_sample_rate(1e6)
-        s.set_center_freq(f, 0)
-        s.set_gain(g, 0)
-        self.connect(blocks.vector_source_c([1+0j],True), s)
-
-    def set_f(self, f): # upd freq
-        self.sk.set_center_freq(f*1e6, 0)
-        print(f"changed freq: {f*1e6}")
-
+        pass
+    
+    def set_f(self, f): 
+        pass
+    
     def set_g(self, g):
-        self.sk.set_gain(g, 0)
+        pass
+
+# from gnuradio import gr, blocks
+# import osmosdr    
+# class CW_TX(gr.top_block):
+#     def __init__(self, f=915, g=10):
+#         gr.top_block.__init__(self, "TX1")
+#         # src: const DC; snk: bladeRF
+#         s = self.sk = osmosdr.sink("bladerf=0,buffers=128,buflen=8192")
+#         s.set_sample_rate(1e6)
+#         s.set_center_freq(f, 0)
+#         s.set_gain(g, 0)
+#         self.connect(blocks.vector_source_c([1+0j],True), s)
+
+#     def set_f(self, f): # upd freq
+#         self.sk.set_center_freq(f*1e6, 0)
+#         print(f"changed freq: {f*1e6}")
+
+#     def set_g(self, g):
+#         self.sk.set_gain(g, 0)
 
 def device_worker(com_port, tag_id, command_queue, result_queue):
     """
@@ -78,17 +105,6 @@ READTIME=5
 # Default Settings
 FREQ_RANGE=list(range(775,1005,10))
 
-# # # Setting up the exciter
-exc = Exciter()
-exc.set_freq(915)
-exc.set_pwr(-30)
-
-# # Connecting to Tags
-# # TAG1_COM="/dev/tty.usbserial-2130"
-# TAG1_COM="COM3"
-# # TAG2_COM="/dev/tty.usbserial-2120"
-# TAG2_COM="COM6"
-# TAG3_COM="COM4"
 
 
 cmd_q1, cmd_q2, cmd_q3, result_q, process1, process2, process3\
@@ -112,6 +128,49 @@ def initialize(TAG1_COM, TAG2_COM):
     process2.start()
     # process3.start()
 
+
+
+def cal_theta(dt, cfg):
+    rs = {}
+    for route, adcs in dt.items():
+        r = route.split("->")
+        tx = r[0]
+        rx = r[1]
+        amp = []
+        phi = []
+        attn = []
+        i = 1
+        try:
+            for adc in adcs:
+                dbm = np.polyval(cfg['pv'][rx], np.log(adc))
+                uW = np.power(10, (dbm - 30) / 10) * 1e6
+                amp.append(np.sqrt(uW * 50 * 2))
+                pwr = int(round(dbm, 0))
+                if pwr < -30:
+                    pwr = -30
+                elif pwr > -12:
+                    pwr = -12
+                if i == 2:
+                    i += 1
+                phi.append(np.polyval(cfg['s11'][tx][f'{i};{pwr}'][0], 915))
+                attn.append(np.polyval(cfg['s11'][tx][f'{i};{pwr}'][1], 915))
+                i += 1
+
+            h = []
+            for a, p in zip(attn, phi):
+                h.append([1, a * np.cos(p), a * np.sin(p)])
+            print("****************************************************")
+            print(h)
+            out = np.matmul(np.matmul(np.linalg.inv(np.matmul(np.transpose(h), h)), np.transpose(h)), amp)
+            res = [out[0], math.atan2(out[2], out[1]), math.atan2(out[2], out[1]) * 180 / np.pi,math.sqrt(out[1] * out[1] + out[2] * out[2])]
+            rs[route] = [adcs, res]
+            print(rs)
+        except Exception as e1:
+            print(e1)
+            rs[route] = [adcs, [0.0, 0.0, 0.0, 0.0]]
+
+    print(rs)
+    return rs
 
 def MPP(cmdq_rx,cmdq_tx, result_q):
     """
@@ -145,8 +204,10 @@ def MPP(cmdq_rx,cmdq_tx, result_q):
 def main(exp_no, params: ExpParams, freq_range):
     if params.excType==0:
         params.excObj.set_pwr(params.exc_power)
-    elif excType==1:
+    elif params.excType==1:
         params.excObj.set_g(params.exc_power)
+    elif params.excType==2:
+        pass
         
     exp_no=params.epoch
     
@@ -159,10 +220,10 @@ def main(exp_no, params: ExpParams, freq_range):
     #                           "MPP Stop Time (s)","Voltages (mV)",
     #                             "Frequency (MHz)", "Run Exp Num", "NumMPPs"])
     
-    DF=pd.DataFrame(columns=["title", "date_", "frequency", "routeA", "ab_Voltages (mV)", 
-                             "routeA MPP Start Time (s)", "routeA MPP Stop Time (s)",
-                             "routeB", "ba_Voltages (mV)", "routeB MPP Start Time (s)", 
-                             "routB MPP Stop Time (s)","epoch"])
+    DF=pd.DataFrame(columns=["title", "date_", "frequency", "routeA", "ab_Voltages (mV)", "ab_amp_median",  "ab_amp_all",
+                             "routeA MPP Start Time (s)", "routeA MPP Stop Time (s)", "theta_ab_deg",
+                             "routeB", "ba_Voltages (mV)", "ba_amp_median", "ba_amp_all", "routeB MPP Start Time (s)", 
+                             "routeB MPP Stop Time (s)", "theta_ba_deg", "theta", "epoch",])
     
     DF_SNAPSHOP=DF
 
@@ -173,25 +234,69 @@ def main(exp_no, params: ExpParams, freq_range):
                 params.excObj.set_freq(freq)
             elif params.excType==1:
                 params.excObj.set_f(freq)
+            elif params.excType==2:
+                pass
                 
             print("FREQ:",freq)
 
             voltage_readings_1, mpp_start_time_1, mpp_stop_time_1=MPP(cmdq_rx=cmd_q1, cmdq_tx=cmd_q2, result_q=result_q)
-            
+            print(mpp_start_time_1, mpp_stop_time_1)
             voltage_readings_2, mpp_start_time_2, mpp_stop_time_2=MPP(cmdq_rx=cmd_q2, cmdq_tx=cmd_q1, result_q=result_q)
+            print(mpp_start_time_2, mpp_stop_time_2)
             
+            # saving entries in raw data csv
+            ver_lines=[]
+            phes=[1,3,4,6,7,8]
+            for i in range(len(phes)):
+                ver_lines.append(20.3*(i)) #this number is hardcoded, change it if the tag code is changed.
+            
+            median_voltages_1={}
+            all_ch_voltages_1={}
+            median_voltages_2={}
+            all_ch_voltages_2={}
+            # saving t2 to t1 MPP voltages
+            for idx,v in enumerate(ver_lines):
+                cur_idx=int(np.round(v))
+                if idx!=len(ver_lines)-1:
+                    n_idx = int(np.round(ver_lines[idx+1]))
+                    # print(f"Phase {phes[idx]} median: {np.median(voltage_readings_1[cur_idx:n_idx])}; all:{voltage_readings_1[cur_idx:n_idx]}")
+                    median_voltages_1[phes[idx]]=np.median(voltage_readings_1[cur_idx:n_idx])
+                    all_ch_voltages_1[phes[idx]]=voltage_readings_1[cur_idx:n_idx]
+                    
+                    median_voltages_2[phes[idx]]=np.median(voltage_readings_2[cur_idx:n_idx])
+                    all_ch_voltages_2[phes[idx]]=voltage_readings_2[cur_idx:n_idx]
+                    
+                else:
+                    print(f"Phase {phes[idx]} median: {np.median(voltage_readings_2[cur_idx:])}; all:{voltage_readings_2[cur_idx:]}")
+                    median_voltages_1[phes[idx]]=np.median(voltage_readings_1[cur_idx:])
+                    all_ch_voltages_1[phes[idx]]=voltage_readings_1[cur_idx:]
+                    
+                    median_voltages_2[phes[idx]]=np.median(voltage_readings_2[cur_idx:])
+                    all_ch_voltages_2[phes[idx]]=voltage_readings_2[cur_idx:]
+
+            
+            
+            
+            # saving the entry in phase csv
             entry={
                 "title":"check",
                 "date_": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "frequency":freq, 
                 "routeA":f"{params.tag2Name}->{params.tag1Name}", 
                 "ab_Voltages (mV)":voltage_readings_1,
+                "ab_amp_median": list(median_voltages_1.values()),  
+                "ab_amp_all": all_ch_voltages_1,
                 "routeA MPP Start Time (s)":mpp_start_time_1, 
                 "routeA MPP Stop Time (s)":mpp_stop_time_1, 
+                "theta_ab_deg": None,
                 "routeB":f"{params.tag1Name}->{params.tag2Name}", 
                 "ba_Voltages (mV)":voltage_readings_2,
+                "ba_amp_median": list(median_voltages_2.values()), 
+                "ba_amp_all": mpp_start_time_2,
                 "routeB MPP Start Time (s)":mpp_start_time_2, 
                 "routeB MPP Stop Time (s)":mpp_stop_time_2, 
+                "theta_ab_deg": None,
+                "theta": None,
                 "epoch":exp_no,
                 }
             DF=pd.concat([DF,pd.DataFrame([entry])],ignore_index=True)
@@ -212,7 +317,7 @@ def main(exp_no, params: ExpParams, freq_range):
     
     save_path=params.csvSavePath
     file_exists = os.path.isfile(save_path)
-    DF_SNAPSHOP.to_csv(save_path, mode='a', index=(not file_exists))
+    DF_SNAPSHOP.to_csv(save_path, mode='a', index=False, header=(not file_exists))
     print(f"CSV saved/appended at: {save_path}")
 
     # metadata_save_path=f"{FOLDER_PATH}/metaData/{exp_no}.txt"
@@ -230,20 +335,11 @@ def main(exp_no, params: ExpParams, freq_range):
         params.excObj.set_pwr(-30)
     elif excType==1:
         params.excObj.set_g(1)
+    elif params.excType==2:
+        pass
     return premature_stop_error
 
 
-class ExpParams:
-    epoch: int
-    freq_range_start: int
-    freq_range_stop: int
-    freq_range_interval: int
-    exc_power: float
-    tag1Name: str
-    tag2Name: str
-    csvSavePath: str
-    excType: int
-    excObj: any
 
 def MPPNetReq(conf: ExpParams):
     freq_range=np.arange(conf.freq_range_start,
@@ -258,13 +354,15 @@ def MPPNetReq(conf: ExpParams):
 
 
 
-def test(excObj, EXC_POWER):
+def test(excObj, EXC_POWER, excType):
     if excType==0:
         excObj.set_pwr(EXC_POWER)
         excObj.set_freq(915)
-    else:
+    elif excType==1:
         excObj.set_g(EXC_POWER)
         excObj.set_f(915)
+    elif excType==2:
+        pass
         
     # Pre-testing tags
     print("TESTING")
@@ -345,7 +443,7 @@ examples:
         help="Exciter power/gain in dBm (e.g. 13)"
     )
     parser.add_argument(
-        "--exc-type", type=int, default=0, choices=[0, 1],
+        "--exc-type", type=int, default=0, choices=[0, 1, 2],
         help="Exciter type: 0=RFGen (default), 1=BladeRF"
     )
     parser.add_argument(
@@ -366,17 +464,20 @@ examples:
     tag2Com = args.tag2_com
 
     if excType==0:
-        pass
+        excObj = Exciter()
     elif excType==1:
         excObj = CW_TX()
         excObj.start()
+    elif excType==2:
+        excObj=None
+        pass
     else:
-        raise "Incorrect exciter type"
+        raise Exception("Incorrect exciter type")
     
     
     
     initialize(tag1Com, tag2Com)
-    test(excObj, exc_pow)
+    test(excObj, exc_pow, excType)
     
     try:
         for epoch in range(100):
@@ -387,7 +488,8 @@ examples:
             params.excObj = excObj
             params.tag1Name = tag1Name
             params.tag2Name = tag2Name
-            params.freq_range_start = 805
+            params.csvSavePath = "./test.csv"
+            params.freq_range_start = 915
             params.freq_range_interval = 10
             params.freq_range_stop = 935\
                 +params.freq_range_interval #added to make stop range freq inclusive

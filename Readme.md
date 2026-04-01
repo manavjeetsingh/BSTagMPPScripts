@@ -1,8 +1,33 @@
 # README
-If viewing offline, open this file in a browser.
+
 ## Microcontroller script
 
 Flash `TagMicrocontrollerCode/usbAPI.ip` on esp32 microcontroller using arduinio IDE.
+
+## 2. Setting up the Python environment
+
+Create and activate a virtual environment, then install dependencies:
+
+```bash
+# Create virtual environment
+python -m venv .venv
+
+# Activate (macOS/Linux)
+source .venv/bin/activate
+
+# Activate (Windows)
+.venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Installing ribbn library
+cd ribbn_scripts
+pip install -e .
+cd ..
+```
+
+Tested with python 3.12.
 
 ## Running phase measurement script.
 

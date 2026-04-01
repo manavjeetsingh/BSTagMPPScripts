@@ -187,13 +187,13 @@ void loop() {
 
     else if (cmd=="mpp") {
       int channels[]= {1,3,4,6,7,8};
-      for (int mpp_idx=0; mpp_idx<5; mpp_idx++){
+      for (int mpp_idx=0; mpp_idx<1; mpp_idx++){
         // Do one complete MPP
         for (int ch_idx=0; ch_idx<6; ch_idx++){
           int ch = channels[ch_idx] - 1;
           RFswitch(ch);
           CHANNEL=ch;
-          delay(10);
+          delay(20);
         }
       }
       
