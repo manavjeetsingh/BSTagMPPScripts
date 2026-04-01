@@ -1,6 +1,11 @@
 # README
 
-## Microcontroller script
+## 1python measurePhasesMultiThreaded.py --tag1-com COM2 --tag2-com COM3 --exc-power 13 --exc-type 0 --tag1-name TagV32_9 --tag2-name TagV32_8 --csv-path ./results.csv --freq-start 900 --freq-stop 950 --freq-step 5 --config "Old Code/config.cal"
+
+# Show full help
+python measurePhasesMultiThreaded.py --help
+
+. Microcontroller script
 
 Flash `TagMicrocontrollerCode/usbAPI.ip` on esp32 microcontroller using arduinio IDE.
 
