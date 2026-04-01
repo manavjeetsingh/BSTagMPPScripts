@@ -43,6 +43,9 @@ python measurePhasesMultiThreaded.py --tag1-com COM2 --tag2-com COM3 --exc-power
 # Custom tag names and Linux serial ports
 python measurePhasesMultiThreaded.py --tag1-com /dev/ttyUSB0 --tag2-com /dev/ttyUSB1 --exc-power 13 --tag1-name TagA --tag2-name TagB
 
+# All arguments
+python measurePhasesMultiThreaded.py --tag1-com COM2 --tag2-com COM3 --exc-power 13 --exc-type 0 --tag1-name TagV32_9 --tag2-name TagV32_8 --csv-path ./results.csv --freq-start 900 --freq-stop 950 --freq-step 5 --config "Old Code/config.cal"
+
 # Show full help
 python measurePhasesMultiThreaded.py --help
 ```
@@ -57,3 +60,8 @@ python measurePhasesMultiThreaded.py --help
 | `--exc-type` | no | `0` | Exciter type: `0`=RFGen, `1`=BladeRF |
 | `--tag1-name` | no | `TagV32_9` | Label for tag 1 |
 | `--tag2-name` | no | `TagV32_8` | Label for tag 2 |
+| `--csv-path` | no | `./test.csv` | Path to save/append CSV results |
+| `--freq-start` | no | `915` | Frequency sweep start in MHz |
+| `--freq-stop` | no | `935` | Frequency sweep stop in MHz (inclusive) |
+| `--freq-step` | no | `10` | Frequency sweep step size in MHz |
+| `--config` | no | `Old Code/config.cal` | Path to calibration `.cal` file |

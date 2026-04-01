@@ -1,7 +1,7 @@
 import serial
 import pandas as pd
-# from ribbn_scripts.hardware_api.hardware import Exciter,Tag
-from ribbn_scripts.hardware_api.hardware import Tag
+from ribbn_scripts.hardware_api.hardware import Exciter,Tag
+# from ribbn_scripts.hardware_api.hardware import Tag
 import numpy as np
 import time
 import pickle
@@ -28,6 +28,7 @@ class ExpParams:
     csvSavePath: str
     excType: int
     excObj: any
+    tagParams: dict
 
 # Initializing dummy class since GNU radio is not installed. 
 # Install the GNU radio and uncommend the real class below
@@ -130,47 +131,35 @@ def initialize(TAG1_COM, TAG2_COM):
 
 
 
-def cal_theta(dt, cfg):
-    rs = {}
-    for route, adcs in dt.items():
-        r = route.split("->")
-        tx = r[0]
-        rx = r[1]
-        amp = []
-        phi = []
-        attn = []
-        i = 1
-        try:
-            for adc in adcs:
-                dbm = np.polyval(cfg['pv'][rx], np.log(adc))
-                uW = np.power(10, (dbm - 30) / 10) * 1e6
-                amp.append(np.sqrt(uW * 50 * 2))
-                pwr = int(round(dbm, 0))
-                if pwr < -30:
-                    pwr = -30
-                elif pwr > -12:
-                    pwr = -12
-                if i == 2:
-                    i += 1
-                phi.append(np.polyval(cfg['s11'][tx][f'{i};{pwr}'][0], 915))
-                attn.append(np.polyval(cfg['s11'][tx][f'{i};{pwr}'][1], 915))
-                i += 1
+def cal_theta(adcs, rxName, txName, cfg):
+    amp = []
+    phi = []
+    attn = []
+    for channel in adcs.keys():
+        dbm = np.polyval(cfg['pv'][rxName], np.log(adcs[channel]))
+        uW = np.power(10, (dbm - 30) / 10) * 1e6
+        amp.append(np.sqrt(uW * 50 * 2))
+        pwr = int(round(dbm, 0))
+        if pwr < -30:
+            pwr = -30
+        elif pwr > -12:
+            pwr = -12
+        
+        phi.append(np.polyval(cfg['s11'][txName][f'{channel};{pwr}'][0], 915))
+        attn.append(np.polyval(cfg['s11'][txName][f'{channel};{pwr}'][1], 915))
 
-            h = []
-            for a, p in zip(attn, phi):
-                h.append([1, a * np.cos(p), a * np.sin(p)])
-            print("****************************************************")
-            print(h)
-            out = np.matmul(np.matmul(np.linalg.inv(np.matmul(np.transpose(h), h)), np.transpose(h)), amp)
-            res = [out[0], math.atan2(out[2], out[1]), math.atan2(out[2], out[1]) * 180 / np.pi,math.sqrt(out[1] * out[1] + out[2] * out[2])]
-            rs[route] = [adcs, res]
-            print(rs)
-        except Exception as e1:
-            print(e1)
-            rs[route] = [adcs, [0.0, 0.0, 0.0, 0.0]]
-
-    print(rs)
-    return rs
+    h = []
+    for a, p in zip(attn, phi):
+        h.append([1, a * np.cos(p), a * np.sin(p)])
+    # print("****************************************************")
+    # print(h)
+    out = np.matmul(np.matmul(np.linalg.inv(np.matmul(np.transpose(h), h)), np.transpose(h)), amp)
+    theta_rad = math.atan2(out[2], out[1])
+    theta_deg = np.rad2deg(math.atan2(out[2], out[1]))
+    V = out[0]
+    beta = math.sqrt(out[1] * out[1] + out[2] * out[2]) 
+    
+    return theta_deg
 
 def MPP(cmdq_rx,cmdq_tx, result_q):
     """
@@ -254,12 +243,22 @@ def main(exp_no, params: ExpParams, freq_range):
             all_ch_voltages_1={}
             median_voltages_2={}
             all_ch_voltages_2={}
-            # saving t2 to t1 MPP voltages
+            
+            # plt.subplot(1,2,1)
+            # plt.plot(voltage_readings_1)
+            # for idx,v in enumerate(ver_lines):
+            #     plt.axvline(x = v, color = 'b', label = 'axvline - full height')
+            # plt.subplot(1,2,2)
+            # plt.plot(voltage_readings_2)
+            # for idx,v in enumerate(ver_lines):
+            #     plt.axvline(x = v, color = 'b', label = 'axvline - full height')
+            # plt.show()
+            
             for idx,v in enumerate(ver_lines):
                 cur_idx=int(np.round(v))
                 if idx!=len(ver_lines)-1:
                     n_idx = int(np.round(ver_lines[idx+1]))
-                    # print(f"Phase {phes[idx]} median: {np.median(voltage_readings_1[cur_idx:n_idx])}; all:{voltage_readings_1[cur_idx:n_idx]}")
+                    print(f"Phase {phes[idx]} median: {np.median(voltage_readings_1[cur_idx:n_idx])}; all:{voltage_readings_1[cur_idx:n_idx]}")
                     median_voltages_1[phes[idx]]=np.median(voltage_readings_1[cur_idx:n_idx])
                     all_ch_voltages_1[phes[idx]]=voltage_readings_1[cur_idx:n_idx]
                     
@@ -275,8 +274,10 @@ def main(exp_no, params: ExpParams, freq_range):
                     all_ch_voltages_2[phes[idx]]=voltage_readings_2[cur_idx:]
 
             
-            
-            
+            thetaA_deg = cal_theta(median_voltages_1, params.tag1Name, params.tag2Name, params.tagParams)
+            thetaB_deg = cal_theta(median_voltages_2, params.tag2Name, params.tag1Name, params.tagParams)
+            print("*"*10)
+            print(thetaA_deg, thetaB_deg, (thetaA_deg+thetaB_deg)/2)
             # saving the entry in phase csv
             entry={
                 "title":"check",
@@ -288,15 +289,15 @@ def main(exp_no, params: ExpParams, freq_range):
                 "ab_amp_all": all_ch_voltages_1,
                 "routeA MPP Start Time (s)":mpp_start_time_1, 
                 "routeA MPP Stop Time (s)":mpp_stop_time_1, 
-                "theta_ab_deg": None,
+                "theta_ab_deg": thetaA_deg,
                 "routeB":f"{params.tag1Name}->{params.tag2Name}", 
                 "ba_Voltages (mV)":voltage_readings_2,
                 "ba_amp_median": list(median_voltages_2.values()), 
                 "ba_amp_all": mpp_start_time_2,
                 "routeB MPP Start Time (s)":mpp_start_time_2, 
                 "routeB MPP Stop Time (s)":mpp_stop_time_2, 
-                "theta_ab_deg": None,
-                "theta": None,
+                "theta_ba_deg": thetaB_deg,
+                "theta": ((thetaA_deg+thetaB_deg)/2)%np.rad2deg(np.pi),
                 "epoch":exp_no,
                 }
             DF=pd.concat([DF,pd.DataFrame([entry])],ignore_index=True)
@@ -312,7 +313,7 @@ def main(exp_no, params: ExpParams, freq_range):
         print("Had to stop script prematurely. Had the following exception: ",e)
         premature_stop=1
         premature_stop_error=e
-        # raise e
+        raise e
             
     
     save_path=params.csvSavePath
@@ -426,8 +427,8 @@ if __name__=="__main__":
         epilog="""
 examples:
   python measurePhasesMultiThreaded.py --tag1-com COM2 --tag2-com COM3 --exc-power 13
-  python measurePhasesMultiThreaded.py --tag1-com /dev/ttyUSB0 --tag2-com /dev/ttyUSB1 --exc-power 10 --exc-type 1
-  python measurePhasesMultiThreaded.py --tag1-com COM2 --tag2-com COM3 --exc-power 13 --tag1-name MyTagA --tag2-name MyTagB
+  python measurePhasesMultiThreaded.py --tag1-com COM2 --tag2-com COM3 --exc-power 13 --csv-path ./results.csv --freq-start 900 --freq-stop 950 --freq-step 5
+  python measurePhasesMultiThreaded.py --tag1-com /dev/ttyUSB0 --tag2-com /dev/ttyUSB1 --exc-power 10 --exc-type 1 --freq-start 915 --freq-stop 935 --freq-step 10
         """,
     )
     parser.add_argument(
@@ -454,14 +455,40 @@ examples:
         "--tag2-name", default="TagV32_8",
         help="Label for tag 2 (default: TagV32_8)"
     )
+    parser.add_argument(
+        "--csv-path", default="./test.csv",
+        help="Path to save CSV results (default: ./test.csv)"
+    )
+    parser.add_argument(
+        "--freq-start", type=int, default=915,
+        help="Frequency sweep start in MHz (default: 915)"
+    )
+    parser.add_argument(
+        "--freq-stop", type=int, default=935,
+        help="Frequency sweep stop in MHz, inclusive (default: 935)"
+    )
+    parser.add_argument(
+        "--freq-step", type=int, default=10,
+        help="Frequency sweep step size in MHz (default: 10)"
+    )
+    parser.add_argument(
+        "--config", default="Old Code/config.cal",
+        help="Path to calibration file (default: Old Code/config.cal)"
+    )
     args = parser.parse_args()
 
+    with open(args.config, 'rb') as f:
+        tag_parameters = pickle.load(f)
     excType = args.exc_type
     tag1Name = args.tag1_name
     tag2Name = args.tag2_name
     exc_pow = args.exc_power
     tag1Com = args.tag1_com
     tag2Com = args.tag2_com
+    csv_path = args.csv_path
+    freq_start = args.freq_start
+    freq_stop = args.freq_stop
+    freq_step = args.freq_step
 
     if excType==0:
         excObj = Exciter()
@@ -483,16 +510,16 @@ examples:
         for epoch in range(100):
             params = ExpParams()
             params.epoch = epoch
+            params.tagParams = tag_parameters
             params.excType=excType
             params.exc_power = exc_pow
             params.excObj = excObj
             params.tag1Name = tag1Name
             params.tag2Name = tag2Name
-            params.csvSavePath = "./test.csv"
-            params.freq_range_start = 915
-            params.freq_range_interval = 10
-            params.freq_range_stop = 935\
-                +params.freq_range_interval #added to make stop range freq inclusive
+            params.csvSavePath = csv_path
+            params.freq_range_start = freq_start
+            params.freq_range_interval = freq_step
+            params.freq_range_stop = freq_stop + freq_step  # +step to make stop inclusive
             print(MPPNetReq(params))
             input("Press enter to continue...")
     finally:

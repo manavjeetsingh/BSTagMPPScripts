@@ -6,7 +6,7 @@ from ribbn_scripts.hardware_api.hardware import Exciter,Tag
 import multiprocessing
 
 # com_port1="COM4"
-com_port1="/dev/tty.usbserial-1140"
+com_port1="/dev/tty.usbserial-1120"
 
 # tag1=Tag(com_port1)
 # print(tag1.get_mac())
